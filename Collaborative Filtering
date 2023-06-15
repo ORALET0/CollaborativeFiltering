@@ -1,0 +1,153 @@
+import pandas as pd
+import numpy as np
+from math import sqrt
+
+cd
+
+cd data
+
+movie_df = pd.read_csv('movies.csv')
+
+rating_df = pd.read_csv('ratings.csv')
+
+rating_df.drop('timestamp', axis=1, inplace=True)
+
+movie_df['year'] = movie_df.title.str.extract(pat='(\W{2}\d{4}\W{1})', expand=False)
+movie_df['year'] = movie_df.year.str.extract(pat='(\d{4})', expand=False)
+movie_df['title'] = movie_df.title.str.replace('(\W{2}\d{4}\W{1})', ' ', regex=True)
+movie_df['title'] = movie_df['title'].apply(lambda x: x.strip())
+
+movie_df.drop(['genres', 'year'], axis=1, inplace=True)
+
+movie_df
+
+rating_df.head()
+
+user_input_list = [
+    {'title': 'Toy Story', 'rating': 5},
+    {'title': 'Jumanji', 'rating': 5},
+    {'title': 'Father of the Bride Part II', 'rating': 4},
+    {'title': 'Sudden Death', 'rating': 4},
+    {'title': 'Heat', 'rating': 5},
+]
+
+input_movies_df = pd.DataFrame(user_input_list)
+input_movies_df
+
+merged_input = movie_df[movie_df['title'].isin(input_movies_df['title'].tolist())]
+input_movies_df = pd.merge(merged_input, input_movies_df)
+input_movies_df
+
+input_movies_df = input_movies_df.drop(4)
+input_movies_df = input_movies_df.drop(5)
+input_movies_df = input_movies_df.reset_index(drop=True)
+input_movies_df
+
+# Yukarıda elde ettiğimiz veri seti üzerinden hali hazırda filmleri rate etmiş kullanıcıları saptayalım. 
+# Benle aynı filmleri rate etmiş kekoları saptayalım
+user_subset = rating_df[rating_df['movieId'].isin(input_movies_df['movieId'].tolist())]
+user_subset.head(10)
+
+user_subset_groups = user_subset.groupby('userId')
+user_subset_groups.count()
+
+user_subset_groups.get_group(14)
+
+# Burada user_subset_group objesini sort edelim ki yeni gelen kullanıcı ile daha verimli bir eşleşme elde edelim.
+user_subset_groups = sorted(user_subset_groups, key=lambda x: len(x[1]), reverse=True)
+user_subset_groups
+
+# yukarı sonuç kümesinden belirli bir kişiyi incelemek istersek
+user_subset_groups[1]
+
+*Algoritmanın bu safhasına kadar yeni gelen kullanıcı ile bu kullanıcının rate ettiği fimleri önceden rate etmiş kullanıcıları saptadır. Şimdi ise bu subset ile arasındaki korelasyona bakacağız. Bunun için istatistikte çok popüler olarak kullanılan Pearson Korelasyonunu kullanacağız. user_subset_groups yoğun bir obje olduğu için ders esnasında es vermemek adına ilk 100 satırı işleme alacağım.*
+
+# Korelasyon işleminin kısa sürmesi için user_subset_groups objesinin ilk 100 satırını alıyoruz.
+user_subset_groups = user_subset_groups[0:100]
+
+*Pearson korelasyonu iki değişken arasında ki doğrusal ilişkinin gücünü ölçmek için kullanılmaktadır. Veri setimizde korelasyonu uyguladıktan sonra elde edeceğimiz kat sayı ile şunu anlayacağız. Yeni gelen kullanıcı ile user_subset_groups içerisinde bulunan kullanıcılar birbirlerine ne kadar benziyorlar.*
+
+
+https://scikit-learn.org/stable/modules/generated/sklearn.feature_selection.r_regression.html
+
+E[(X[:, i] - mean(X[:, i])) * (y - mean(y))] / (std(X[:, i]) * std(y))
+
+len(user_subset_groups)
+
+# Pearson korelasyonu sonucunda elde ettiğimiz kat sayıları store etmek için bir dictionary yaratıyoruz
+pearson_corellation_dict = {}
+
+for user_id, group in user_subset_groups:
+    # Girdi (user_input_df) ve mevcut kullanıcı grubunu movieId bilgisine göre sıralayalım
+    # Böylelikle değerler daha sonra bir birlerine karışmayacak
+    group.sort_values(by='movieId',  inplace=True)
+    input_movies_df.sort_values(by='movieId',  inplace=True)
+    # Kullanacağımız korelasyon formülü için bir N sayısı belirlememiz gerekmektedir
+    n_rating = len(group)
+    # group ile input_movies_df içerisinde ki ortak filmlerin rating puanlarını alalım.
+    temp_df = input_movies_df[input_movies_df['movieId'].isin(group['movieId'].tolist())]
+    # Yukarıda ki işlem sonucunda temp_df içerisinde gereksiz bir çok sütun oluşacaktır, title, movieId vb
+    # Halbuki bizim ihtiyacımız olan tek bir bilgi var rating punaları bu temp_df içerisinden onları select edelim
+    temp_rating_list = temp_df['rating'].tolist()
+    temp_group_list = group['rating'].tolist()
+    
+    # Bu ana kadar korelasyon formülünü uygulamak için ihityaç duyulan parametreleri hazrıladık.
+    # Şimdi korelasyon formülü kullanılarak x ve y olarak nitelendirilecek 2 parametre arasında ki benzerlik katsayını
+    # buluyoruz
+    Sxx = sum([i ** 2 for i in temp_rating_list]) - pow(sum(temp_rating_list), 2) / float(n_rating)
+    Syy = sum([i ** 2 for i in temp_group_list]) - pow(sum(temp_group_list), 2) / float(n_rating)
+    Sxy = sum(i * j for i, j in zip(temp_group_list, temp_rating_list)) - sum(temp_rating_list) * sum(temp_group_list) / float(n_rating)
+    
+    
+    if Sxx != 0 and Syy != 0:
+        pearson_corellation_dict[user_id] = Sxy / sqrt(Sxx * Syy)
+    else:
+        pearson_corellation_dict[user_id] = 0
+
+print(pearson_corellation_dict.items())
+
+# Yukarıda ki çıktıyı incelediğimizde rating_df içerisinde ki belirli kullanıcılar ile yeni gelen kullanıcı arasında ki
+# ilişkiyi ekrana yazdırdık. Şimdi bu sonuç kümesini df dönüştürelim
+# https://pandas.pydata.org/docs/reference/api/pandas.DataFrame.from_dict.html
+pearson_df = pd.DataFrame.from_dict(data=pearson_corellation_dict, orient='index')
+pearson_df.columns = ['similarty_index']
+pearson_df['user_id'] = pearson_df.index
+pearson_df.index = range(len(pearson_df))
+pearson_df
+
+sorted_pearson_df = pearson_df.sort_values(by='similarty_index', ascending=False)
+sorted_pearson_df
+
+# Yukarıda yeni gelen kullanıcı ile benzerliği hesaplanan kullanıcıların hangi filmlere verdiği rating puanlarını bulalım.
+# Bu işlemi yapmak için ağırlık olarak pearson korelasyonu kullanarak filmleri rating'lerinin ağrılık ortlamasını bularak
+# yapacağız. Ancak bunu yapmak için ilk adımda sorted_pearson_df'de kullanıcıların rate ettikleri fimleri derecelendirme
+# puanlarını ekleyelim.
+
+# Adım 1
+pearson_df_with_rating = sorted_pearson_df.merge(rating_df, left_on='user_id', right_on='userId', how='inner')
+pearson_df_with_rating
+
+# Adım 2
+# Şimdi tek yapmamız gereken şey filmleri derecelendirmesini ağırlıkları ile yani benzerlik index (similarty_index)
+# ile çarpacağız. Ardından rating'leri toplayıp ağırlıkların toplamına böleceğiz ki bir avarage bulalım.
+pearson_df_with_rating['weigthed_rating'] = pearson_df_with_rating['similarty_index'] * pearson_df_with_rating['rating']
+pearson_df_with_rating
+
+# movieId sütununa göre groupby yapıp toplam similarty_index ve weigthed_rating elde edelim
+temp_user_rating = pearson_df_with_rating.groupby('movieId').sum()[['similarty_index', 'weigthed_rating']]
+temp_user_rating.columns = ['sum_similarty_index', 'sum_weigthed_rating']
+temp_user_rating
+
+recomandation_df = pd.DataFrame()
+
+recomandation_df['weighted avarage recomandation score'] = temp_user_rating['sum_similarty_index'] / temp_user_rating['sum_weigthed_rating']
+recomandation_df['movie_Id'] = temp_user_rating.index
+recomandation_df
+
+recomandation_df.sort_values(by='weighted avarage recomandation score', ascending=False, inplace=True)
+recomandation_df.reset_index()
+recomandation_df.head(20)
+
+result = recomandation_df.head(20).merge(movie_df, left_on='movie_Id', right_on='movieId', how='inner')
+result
+
